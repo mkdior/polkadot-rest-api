@@ -23,9 +23,15 @@ jobs:
       tags: ${{ steps.missing.outputs.tags }}
     steps:
       - name: Check out the ci branch
+        # The default GITHUB_TOKEN is a GitHub App token and may never create or
+        # update workflow files, but upstream's tags/branches contain
+        # .github/workflows/*.yml, so mirror pushes need the write deploy key
+        # (SSH keys are exempt from that restriction). The gh release steps in
+        # build-release keep using the default token; contents:write suffices there.
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.MIRROR_SYNC_DEPLOY_KEY }}
 
       - name: Mirror upstream main and tags into this fork
         run: |
