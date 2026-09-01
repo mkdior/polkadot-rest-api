@@ -1,6 +1,8 @@
-# polkadot-rest-api: binary-release mirror
+# polkadot-rest-api prebuilt binaries (release-build mirror)
 
-> **Why this fork exists.** Upstream [paritytech/polkadot-rest-api](https://github.com/paritytech/polkadot-rest-api) publishes **source-only releases**; there are no official binaries. This fork does exactly one thing on top of mirroring upstream: a CI pipeline builds each upstream release tag with the repository's **own Dockerfile** (pinned Rust toolchain, Debian bookworm base) and attaches the resulting **Linux x86_64 binary** to a GitHub Release here. Operators can then install the API with a single hash-verified `curl`, instead of installing Docker and a Rust toolchain on production hosts.
+**Looking for a polkadot-rest-api binary download?** Upstream [paritytech/polkadot-rest-api](https://github.com/paritytech/polkadot-rest-api), the Rust successor to Substrate API Sidecar (`substrate-api-sidecar`), publishes **source-only releases**; there are no official prebuilt binaries. This repository fills that gap: it automatically mirrors upstream and attaches a **prebuilt Linux x86_64 binary** to every upstream release tag, built by public CI from unmodified source. If you want to run the Polkadot REST API (for Polkadot, Kusama, Asset Hub / Polkadot Hub, Westend, or any Substrate chain it supports) without installing Docker or a Rust toolchain, grab it from the [**Releases page**](https://github.com/kk-hasuwae/polkadot-rest-api/releases).
+
+> **Why this fork exists.** One reason only: turn upstream's source-only releases into downloadable, hash-verifiable binaries. The CI pipeline builds each upstream release tag with the repository's **own Dockerfile** (pinned Rust toolchain, Debian bookworm base), so the build is exactly what upstream defines, just executed in public CI instead of on your machine.
 >
 > **No source code is modified.** Branch `main` and every tag are unmodified mirrors of upstream. The only content unique to this fork lives on the `ci` branch: this README, the workflow in `.github/workflows/sync-and-release.yml`, and a `LAST_SYNC` timestamp.
 
@@ -16,7 +18,7 @@ Once a day (and on manual dispatch), the `sync-and-release` workflow:
 
 The release notes record the upstream commit and the builder base-image digest for provenance.
 
-## Consuming a release
+## Download and verify a release binary
 
 ```bash
 TAG=v0.2.0
