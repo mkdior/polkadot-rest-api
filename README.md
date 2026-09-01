@@ -1,52 +1,105 @@
-# polkadot-rest-api prebuilt binaries (release-build mirror)
+# polkadot-rest-api reviewed binary publisher
 
-**Looking for a polkadot-rest-api binary download?** Upstream [paritytech/polkadot-rest-api](https://github.com/paritytech/polkadot-rest-api), the Rust successor to Substrate API Sidecar (`substrate-api-sidecar`), publishes **source-only releases**; there are no official prebuilt binaries. This repository fills that gap: it automatically mirrors upstream and attaches a **prebuilt Linux x86_64 binary** to every upstream release tag, built by public CI from unmodified source. If you want to run the Polkadot REST API (for Polkadot, Kusama, Asset Hub / Polkadot Hub, Westend, or any Substrate chain it supports) without installing Docker or a Rust toolchain, grab it from the [**Releases page**](https://github.com/kk-hasuwae/polkadot-rest-api/releases).
+This repository publishes Linux x86-64 binaries for selected releases of
+[paritytech/polkadot-rest-api](https://github.com/paritytech/polkadot-rest-api).
+Upstream publishes source releases, not official prebuilt binaries.
 
-> **Why this fork exists.** One reason only: turn upstream's source-only releases into downloadable, hash-verifiable binaries. The CI pipeline builds each upstream release tag with the repository's **own Dockerfile** (pinned Rust toolchain, Debian bookworm base), so the build is exactly what upstream defines, just executed in public CI instead of on your machine.
->
-> **No source code is modified.** Branch `main` and every tag are unmodified mirrors of upstream. The only content unique to this fork lives on the `ci` branch: this README, the workflow in `.github/workflows/sync-and-release.yml`, and a `LAST_SYNC` timestamp.
+This is a publisher, not a source mirror. Upstream branches, tags, and workflow
+files are deliberately not pushed here. Every build must first be added to
+[`approved-releases.json`](approved-releases.json) with a reviewed stable SemVer
+tag, GitHub-verified annotated-tag object, peeled commit, immutable builder and
+runtime image manifests, and source/security review record.
 
-## How it works
+## Download and verify
 
-Once a day (and on manual dispatch), the `sync-and-release` workflow:
-
-1. Fetches upstream and force-pushes `upstream/main` to `main`, plus all tags (pure mirror; local changes to `main` are intentionally impossible to keep).
-2. Commits a `LAST_SYNC` timestamp on `ci` (GitHub auto-disables scheduled workflows after 60 days without repository activity; this keeps the schedule alive).
-3. For every upstream tag `>= v0.2.0` that has no release with a binary asset here, it builds the tag with the repo's own `Dockerfile` on an `ubuntu-24.04` runner, extracts `/usr/local/bin/polkadot-rest-api`, and publishes a release with two assets:
-   - `polkadot-rest-api-<tag>-linux-x86_64`
-   - `polkadot-rest-api-<tag>-linux-x86_64.sha256`
-
-The release notes record the upstream commit and the builder base-image digest for provenance.
-
-## Download and verify a release binary
+Publisher tags are intentionally distinct from upstream tags. For upstream
+`v0.2.0`, publisher revision 1 is `publisher-v0.2.0-r1`:
 
 ```bash
-TAG=v0.2.0
-BASE=https://github.com/kk-hasuwae/polkadot-rest-api/releases/download/${TAG}
-curl -fLO "${BASE}/polkadot-rest-api-${TAG}-linux-x86_64"
-curl -fLO "${BASE}/polkadot-rest-api-${TAG}-linux-x86_64.sha256"
-sha256sum -c "polkadot-rest-api-${TAG}-linux-x86_64.sha256"
+UPSTREAM_TAG=v0.2.0
+RELEASE_TAG=publisher-v0.2.0-r1
+REPO=kk-hasuwae/polkadot-rest-api
+ASSET=polkadot-rest-api-${UPSTREAM_TAG}-linux-x86_64
+
+gh release download "${RELEASE_TAG}" --repo "${REPO}" \
+  --pattern "${ASSET}" \
+  --pattern "${ASSET}.sha256" \
+  --pattern "${ASSET}.provenance.json"
+sha256sum -c "${ASSET}.sha256"
+gh attestation verify "${ASSET}" \
+  --repo "${REPO}" \
+  --signer-workflow "${REPO}/.github/workflows/sync-and-release.yml"
 ```
 
-The binary is built on Debian bookworm (glibc 2.36), so it runs on any distro with glibc >= 2.36 (Ubuntu 22.04+, Debian 12+).
+The exact release asset set is:
 
-## Trust model
+- `polkadot-rest-api-<upstream-tag>-linux-x86_64`
+- the matching `.sha256`
+- the matching `.provenance.json`
 
-- The release is **transport, not trust**: consumers must pin the expected sha256 out-of-band (e.g. in their deployment runbook, recorded when the artifact is first validated) rather than trusting whatever the release currently serves. The `.sha256` asset is a convenience for the initial recording, not a security boundary; anyone who can alter the binary asset can alter it too.
-- Provenance chain: upstream tag -> mirrored tag (same commit hash, verifiable against upstream) -> Actions build log (public) -> release asset.
-- Builds are not guaranteed byte-reproducible across time: the upstream Dockerfile uses a mutable base-image tag and unpinned apt packages. Each release therefore records the base-image digest actually used.
+The provenance records the signed upstream tag object and commit, publisher
+workflow commit, reviewed base-image digests, source-input hashes, build run,
+artifact size, and artifact SHA-256. Also confirm that the publisher release tag
+points to the recorded publisher commit. It points to trusted code on `ci`, never
+to upstream source.
 
-## Branch layout
+## Mandatory adoption policy
 
-| Branch | Content                                                   |
-| ------ | --------------------------------------------------------- |
-| `ci`   | **default**; this README + the workflow + `LAST_SYNC` only |
-| `main` | pure mirror of upstream `main` (force-updated; do not commit here) |
+The co-located checksum establishes consistency, not independent trust. Before a
+new publisher revision is used in production:
 
-`ci` is the default branch because scheduled workflows only run from the default branch, and keeping the workflow off `main` lets the mirror force-push without ever colliding with CI files.
+1. Review the exact upstream source commit and Dockerfile, the signed upstream
+   tag, and the publisher commit that approved it.
+2. Review the public build log and provenance. Verify the artifact attestation
+   names this repository and `.github/workflows/sync-and-release.yml`; confirm
+   its workflow ref/commit is the publisher commit recorded in provenance.
+3. Download and hash the binary independently. Record its SHA-256, upstream tag
+   object/commit, publisher commit, and Actions run outside this repository.
+4. Install this exact artifact in staging and complete the required soak and
+   security/functional checks. A same-version, separately built binary does not
+   satisfy this requirement.
+5. Run the service as a dedicated least-privilege identity, not as a node or
+   other application account. Apply systemd hardening such as `NoNewPrivileges`,
+   `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, and
+   `RestrictSUIDSGID=true`, adjusted only for documented runtime needs.
 
-## Operations notes
+The binary should still be pinned by its independently adopted SHA-256 in every
+deployment. GitHub transport, release notes, provenance, checksum, and
+attestation are complementary evidence; none replaces source review and exact
+artifact staging.
 
-- This is a GitHub **fork**, so scheduled workflows are disabled until enabled once in the **Actions** tab.
-- Manual run: **Actions -> Sync upstream and release binaries -> Run workflow** (builds any missing tags immediately).
-- To raise the oldest tag that gets built, change `MIN_TAG` in the workflow.
+## Publisher design
+
+The scheduled/manual workflow performs three separated phases:
+
+1. A read-only audit validates each approval against the live upstream signed
+   tag and audits any existing release's exact assets and hashes. New upstream
+   stable tags are listed only as a human review queue.
+2. A bounded, read-only job builds at most two approved releases serially, with
+   a 45-minute timeout. It fetches the pinned commit, substitutes only the two
+   reviewed base-image manifests, and rejects symlinks, special files, implausible
+   sizes, and non-x86-64 ELF output without executing the binary.
+3. A fresh, trusted publication job is the only job with `contents: write`. It
+   treats the transferred bundle strictly as data, revalidates it without
+   execution, generates GitHub artifact attestations, and creates a draft. The
+   exact uploaded files are downloaded and compared before publication.
+
+Published releases are never clobbered or rebuilt in place. A changed build gets
+a new publisher revision. Upstream tag movement/deletion, signature failure,
+release drift, partial assets, or a revoked release still being downloadable
+fails the audit. All third-party actions are pinned to reviewed full commit SHAs.
+
+The upstream Dockerfile still installs packages from mutable Debian repositories,
+so builds are not guaranteed byte-reproducible even though its base images and
+Cargo lockfile are pinned/recorded. This is why publisher revisions are immutable
+and adoption pins an independently reviewed artifact hash.
+
+See [SECURITY.md](SECURITY.md) for migration, revocation, and incident procedures.
+
+## Branch and operations model
+
+Only the trusted `ci` publisher branch is required. There is no deploy key and no
+automated keepalive commit. GitHub may disable schedules in an inactive public
+repository; manually dispatch the audit after approving a release and monitor
+the schedule explicitly. Scheduled runs audit provenance and upstream movement;
+they do not approve or auto-publish arbitrary new tags.

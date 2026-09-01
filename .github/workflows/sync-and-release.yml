@@ -1,114 +1,148 @@
-name: Sync upstream and release binaries
+name: Audit approved upstream releases and publish binaries
 
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch: {}
 
-permissions:
-  contents: write
+# Deny by default. Only the final, trusted publication job can write releases.
+permissions: {}
 
 concurrency:
-  group: sync-and-release
+  group: approved-release-publisher
   cancel-in-progress: false
 
 env:
+  UPSTREAM_REPOSITORY: paritytech/polkadot-rest-api
   UPSTREAM_URL: https://github.com/paritytech/polkadot-rest-api.git
-  MIN_TAG: v0.2.0
 
 jobs:
-  sync:
+  plan:
+    name: Audit approvals and plan missing releases
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
     outputs:
-      tags: ${{ steps.missing.outputs.tags }}
+      releases: ${{ steps.plan.outputs.releases }}
     steps:
-      - name: Check out the ci branch
-        # The default GITHUB_TOKEN is a GitHub App token and may never create or
-        # update workflow files, but upstream's tags/branches contain
-        # .github/workflows/*.yml, so mirror pushes need the write deploy key
-        # (SSH keys are exempt from that restriction). The gh release steps in
-        # build-release keep using the default token; contents:write suffices there.
-        uses: actions/checkout@v4
+      - name: Check out the trusted publisher branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 0
-          ssh-key: ${{ secrets.MIRROR_SYNC_DEPLOY_KEY }}
-
-      - name: Mirror upstream main and tags into this fork
-        run: |
-          git remote add upstream "${UPSTREAM_URL}"
-          git fetch upstream --tags --prune
-          git push --force origin 'refs/remotes/upstream/main:refs/heads/main'
-          git push origin --tags
-
-      - name: Keepalive commit (schedules auto-disable after 60 days without repo activity)
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          date -u +%FT%TZ > LAST_SYNC
-          git add LAST_SYNC
-          git commit -m "sync: $(cat LAST_SYNC)" >/dev/null 2>&1 || true
-          git push origin HEAD
-
-      - name: Find upstream release tags without a binary asset
-        id: missing
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          missing=()
-          for t in $(git tag -l 'v*' | sort -V); do
-            # only MIN_TAG and newer; older tags predate the versions we operate
-            [ "$(printf '%s\n%s\n' "${MIN_TAG}" "$t" | sort -V | head -1)" = "${MIN_TAG}" ] || continue
-            if ! gh release view "$t" --repo "${GITHUB_REPOSITORY}" --json assets \
-                 --jq '.assets[].name' 2>/dev/null | grep -q '^polkadot-rest-api-'; then
-              missing+=("$t")
-            fi
-          done
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "tags=[]" >> "${GITHUB_OUTPUT}"
-          else
-            echo "tags=$(printf '%s\n' "${missing[@]}" | jq -R . | jq -cs .)" >> "${GITHUB_OUTPUT}"
-          fi
-
-  build-release:
-    needs: sync
-    if: ${{ needs.sync.outputs.tags != '[]' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        tag: ${{ fromJson(needs.sync.outputs.tags) }}
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out the release tag
-        # persist-credentials MUST stay false here: this job runs `docker build`
-        # on UPSTREAM code, and the build context includes .git; a persisted
-        # token in .git/config would be readable by a hostile Dockerfile.
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ matrix.tag }}
           persist-credentials: false
 
-      - name: Build with the repo's own Dockerfile (pinned toolchain, bookworm glibc)
-        run: |
-          ASSET="polkadot-rest-api-${{ matrix.tag }}-linux-x86_64"
-          docker build -t "polkadot-rest-api:${{ matrix.tag }}" .
-          cid=$(docker create "polkadot-rest-api:${{ matrix.tag }}")
-          docker cp "${cid}:/usr/local/bin/polkadot-rest-api" "${ASSET}"
-          docker rm "${cid}"
-          chmod +x "${ASSET}"
-          sha256sum "${ASSET}" | tee "${ASSET}.sha256"
-
-      - name: Create the release and upload the assets
+      - name: Audit upstream and existing releases
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          ASSET="polkadot-rest-api-${{ matrix.tag }}-linux-x86_64"
-          COMMIT=$(git rev-parse HEAD)
-          BASE=$(sed -n 's/^FROM \(.*\) AS builder$/\1/p' Dockerfile | head -1)
-          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "${BASE}" 2>/dev/null || echo unknown)
-          NOTES=$(printf 'Unmodified upstream source, built by GitHub Actions with the repo'"'"'s own Dockerfile.\n\n- Upstream tag: %s\n- Upstream commit: %s\n- Builder base image: %s\n- Builder base digest: %s\n\nVerify after download: sha256sum -c %s.sha256\n' \
-            "${{ matrix.tag }}" "${COMMIT}" "${BASE}" "${DIGEST}" "${ASSET}")
-          gh release create "${{ matrix.tag }}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
-            --title "polkadot-rest-api ${{ matrix.tag }} (mirror build)" \
-            --notes "${NOTES}" || true
-          gh release upload "${{ matrix.tag }}" --repo "${GITHUB_REPOSITORY}" --clobber \
-            "${ASSET}" "${ASSET}.sha256"
+          PUBLISHER_COMMIT: ${{ github.sha }}
+        run: bash .github/scripts/plan-releases.sh
+
+  build:
+    name: Build ${{ matrix.release.upstream_tag }} without write credentials
+    needs: plan
+    if: ${{ needs.plan.outputs.releases != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        release: ${{ fromJSON(needs.plan.outputs.releases) }}
+    steps:
+      - name: Check out trusted build scripts
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Fetch the approved commit, build, and validate without execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_COMMIT: ${{ github.sha }}
+          UPSTREAM_TAG: ${{ matrix.release.upstream_tag }}
+          UPSTREAM_TAG_OBJECT: ${{ matrix.release.upstream_tag_object }}
+          UPSTREAM_COMMIT: ${{ matrix.release.upstream_commit }}
+          VERSION: ${{ matrix.release.version }}
+          RELEASE_TAG: ${{ matrix.release.release_tag }}
+          BUILDER_BASE: ${{ matrix.release.builder_base }}
+          RUNTIME_BASE: ${{ matrix.release.runtime_base }}
+          REVIEWED_AT: ${{ matrix.release.reviewed_at }}
+          REVIEW_REFERENCE: ${{ matrix.release.review_reference }}
+        run: bash .github/scripts/build-release.sh
+
+      - name: Transfer the validated bundle to the publisher job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.release.release_tag }}
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    name: Attest and publish ${{ matrix.release.upstream_tag }}
+    needs:
+      - plan
+      - build
+    if: ${{ needs.plan.outputs.releases != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        release: ${{ fromJSON(needs.plan.outputs.releases) }}
+    steps:
+      - name: Check out trusted publisher scripts
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download the build bundle on a fresh runner
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-${{ matrix.release.release_tag }}
+          path: dist
+
+      - name: Revalidate the bundle before publication
+        env:
+          PUBLISHER_COMMIT: ${{ github.sha }}
+          UPSTREAM_TAG: ${{ matrix.release.upstream_tag }}
+          UPSTREAM_TAG_OBJECT: ${{ matrix.release.upstream_tag_object }}
+          UPSTREAM_COMMIT: ${{ matrix.release.upstream_commit }}
+          VERSION: ${{ matrix.release.version }}
+          RELEASE_TAG: ${{ matrix.release.release_tag }}
+          BUILDER_BASE: ${{ matrix.release.builder_base }}
+          RUNTIME_BASE: ${{ matrix.release.runtime_base }}
+          REVIEWED_AT: ${{ matrix.release.reviewed_at }}
+          REVIEW_REFERENCE: ${{ matrix.release.review_reference }}
+        run: bash .github/scripts/validate-bundle.sh dist
+
+      - name: Generate GitHub artifact attestations
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            dist/polkadot-rest-api-${{ matrix.release.upstream_tag }}-linux-x86_64
+            dist/polkadot-rest-api-${{ matrix.release.upstream_tag }}-linux-x86_64.sha256
+            dist/polkadot-rest-api-${{ matrix.release.upstream_tag }}-linux-x86_64.provenance.json
+
+      - name: Create an immutable publisher-owned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_COMMIT: ${{ github.sha }}
+          UPSTREAM_TAG: ${{ matrix.release.upstream_tag }}
+          UPSTREAM_TAG_OBJECT: ${{ matrix.release.upstream_tag_object }}
+          UPSTREAM_COMMIT: ${{ matrix.release.upstream_commit }}
+          VERSION: ${{ matrix.release.version }}
+          RELEASE_TAG: ${{ matrix.release.release_tag }}
+          BUILDER_BASE: ${{ matrix.release.builder_base }}
+          RUNTIME_BASE: ${{ matrix.release.runtime_base }}
+          REVIEWED_AT: ${{ matrix.release.reviewed_at }}
+          REVIEW_REFERENCE: ${{ matrix.release.review_reference }}
+        run: bash .github/scripts/publish-release.sh
