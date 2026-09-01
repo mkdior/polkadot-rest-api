@@ -20,7 +20,7 @@ Complete this checklist before re-enabling Actions:
    the inventory. Do not replace them with other upstream workflow-bearing refs.
    If an exact mirror remains operationally necessary, place it in a different
    repository with Actions disabled and no secrets.
-5. Push this trusted `ci` implementation, protect `ci` and
+5. Push this trusted `main` implementation, protect `main` and
    `approved-releases.json` with required review/CODEOWNERS, set the default
    Actions token permission to read-only, allow only reviewed SHA-pinned actions,
    and enable immutable releases if the repository setting is available.
@@ -29,7 +29,7 @@ Complete this checklist before re-enabling Actions:
    provenance and exact-artifact staging policy. Update all consumers away from
    the quarantined legacy release URL.
 
-Rewriting `ci` history is not a substitute for this migration: GitHub retains
+Rewriting `main` history is not a substitute for this migration: GitHub retains
 workflow/audit evidence, and deleting an exposed credential from Git history
 does not revoke it. Rewrite only if secret bytes or other sensitive material are
 found, then rotate them first and coordinate the force-push against branch rules.
@@ -45,7 +45,7 @@ An approval is a deliberate security change, not discovery automation:
    digests. Add a new record to `approved-releases.json` with a new publisher
    revision tag. Never reuse a published publisher tag.
 3. Obtain required review on the manifest and workflow/scripts. Merge to the
-   protected `ci` branch, manually dispatch, and review the complete run.
+   protected `main` branch, manually dispatch, and review the complete run.
 4. Apply README.md's adoption policy before deployment.
 
 ## Revocation and upstream ref incidents

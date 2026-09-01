@@ -40,7 +40,7 @@ The exact release asset set is:
 The provenance records the signed upstream tag object and commit, publisher
 workflow commit, reviewed base-image digests, source-input hashes, build run,
 artifact size, and artifact SHA-256. Also confirm that the publisher release tag
-points to the recorded publisher commit. It points to trusted code on `ci`, never
+points to the recorded publisher commit. It points to trusted code on `main`, never
 to upstream source.
 
 ## Mandatory adoption policy
@@ -98,7 +98,7 @@ See [SECURITY.md](SECURITY.md) for migration, revocation, and incident procedure
 
 ## Branch and operations model
 
-Only the trusted `ci` publisher branch is required. There is no deploy key and no
+Only the trusted `main` publisher branch is required. There is no deploy key and no
 automated keepalive commit. GitHub may disable schedules in an inactive public
 repository; manually dispatch the audit after approving a release and monitor
 the schedule explicitly. Scheduled runs audit provenance and upstream movement;
