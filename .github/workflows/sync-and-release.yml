@@ -79,9 +79,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the release tag
+        # persist-credentials MUST stay false here: this job runs `docker build`
+        # on UPSTREAM code, and the build context includes .git; a persisted
+        # token in .git/config would be readable by a hostile Dockerfile.
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.tag }}
+          persist-credentials: false
 
       - name: Build with the repo's own Dockerfile (pinned toolchain, bookworm glibc)
         run: |
