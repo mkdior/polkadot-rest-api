@@ -15,6 +15,20 @@
       "review_reference": "catalog backfill: diff review v0.1.2..v0.1.3 (dep bumps incl openssl 0.10.80, Dockerfile unchanged), GitHub-verified tag",
       "revoked_at": null,
       "revocation_reason": null
+    },
+    {
+      "status": "approved",
+      "upstream_tag": "v0.1.4",
+      "upstream_tag_object": "32edf2784d455a8d15e5388f161f9a73eb5a8d90",
+      "upstream_commit": "9ee24ed31353b9d1d0fe503f3148bb5c09cbe69c",
+      "version": "0.1.4",
+      "release_tag": "publisher-v0.1.4-r1",
+      "builder_base": "docker.io/library/rust:1.90.0-slim-bookworm@sha256:4f572135209e89d488fadb81d8a07309857f9b9c5280b54c85a44b71629e8cca",
+      "runtime_base": "docker.io/library/debian:bookworm-slim@sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867",
+      "reviewed_at": "2026-09-01",
+      "review_reference": "catalog backfill: diff review v0.1.3..v0.1.4 (Dockerfile LABEL name fix only, metadata/event-decode fixes), GitHub-verified tag",
+      "revoked_at": null,
+      "revocation_reason": null
     }
   ]
 }
