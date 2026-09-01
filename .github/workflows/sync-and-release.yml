@@ -1,0 +1,104 @@
+name: Sync upstream and release binaries
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-and-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/paritytech/polkadot-rest-api.git
+  MIN_TAG: v0.2.0
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    outputs:
+      tags: ${{ steps.missing.outputs.tags }}
+    steps:
+      - name: Check out the ci branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror upstream main and tags into this fork
+        run: |
+          git remote add upstream "${UPSTREAM_URL}"
+          git fetch upstream --tags --prune
+          git push --force origin 'refs/remotes/upstream/main:refs/heads/main'
+          git push origin --tags
+
+      - name: Keepalive commit (schedules auto-disable after 60 days without repo activity)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          date -u +%FT%TZ > LAST_SYNC
+          git add LAST_SYNC
+          git commit -m "sync: $(cat LAST_SYNC)" >/dev/null 2>&1 || true
+          git push origin HEAD
+
+      - name: Find upstream release tags without a binary asset
+        id: missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          missing=()
+          for t in $(git tag -l 'v*' | sort -V); do
+            # only MIN_TAG and newer; older tags predate the versions we operate
+            [ "$(printf '%s\n%s\n' "${MIN_TAG}" "$t" | sort -V | head -1)" = "${MIN_TAG}" ] || continue
+            if ! gh release view "$t" --repo "${GITHUB_REPOSITORY}" --json assets \
+                 --jq '.assets[].name' 2>/dev/null | grep -q '^polkadot-rest-api-'; then
+              missing+=("$t")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "tags=[]" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tags=$(printf '%s\n' "${missing[@]}" | jq -R . | jq -cs .)" >> "${GITHUB_OUTPUT}"
+          fi
+
+  build-release:
+    needs: sync
+    if: ${{ needs.sync.outputs.tags != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJson(needs.sync.outputs.tags) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+
+      - name: Build with the repo's own Dockerfile (pinned toolchain, bookworm glibc)
+        run: |
+          ASSET="polkadot-rest-api-${{ matrix.tag }}-linux-x86_64"
+          docker build -t "polkadot-rest-api:${{ matrix.tag }}" .
+          cid=$(docker create "polkadot-rest-api:${{ matrix.tag }}")
+          docker cp "${cid}:/usr/local/bin/polkadot-rest-api" "${ASSET}"
+          docker rm "${cid}"
+          chmod +x "${ASSET}"
+          sha256sum "${ASSET}" | tee "${ASSET}.sha256"
+
+      - name: Create the release and upload the assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSET="polkadot-rest-api-${{ matrix.tag }}-linux-x86_64"
+          COMMIT=$(git rev-parse HEAD)
+          BASE=$(sed -n 's/^FROM \(.*\) AS builder$/\1/p' Dockerfile | head -1)
+          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "${BASE}" 2>/dev/null || echo unknown)
+          NOTES=$(printf 'Unmodified upstream source, built by GitHub Actions with the repo'"'"'s own Dockerfile.\n\n- Upstream tag: %s\n- Upstream commit: %s\n- Builder base image: %s\n- Builder base digest: %s\n\nVerify after download: sha256sum -c %s.sha256\n' \
+            "${{ matrix.tag }}" "${COMMIT}" "${BASE}" "${DIGEST}" "${ASSET}")
+          gh release create "${{ matrix.tag }}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
+            --title "polkadot-rest-api ${{ matrix.tag }} (mirror build)" \
+            --notes "${NOTES}" || true
+          gh release upload "${{ matrix.tag }}" --repo "${GITHUB_REPOSITORY}" --clobber \
+            "${ASSET}" "${ASSET}.sha256"
