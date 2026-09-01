@@ -64,7 +64,7 @@
       "upstream_tag_object": "6a7112bf2612ad8a712cf1b97eb75296d8a7a939",
       "upstream_commit": "d8643ec9835bfbb2c2da452b94fc7bf51d64ab99",
       "version": "0.2.0",
-      "release_tag": "publisher-v0.2.0-r1",
+      "release_tag": "publisher-v0.2.0-r2",
       "builder_base": "docker.io/library/rust:1.90.0-slim-bookworm@sha256:4f572135209e89d488fadb81d8a07309857f9b9c5280b54c85a44b71629e8cca",
       "runtime_base": "docker.io/library/debian:bookworm-slim@sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867",
       "reviewed_at": "2026-09-01",
