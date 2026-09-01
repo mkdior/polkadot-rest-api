@@ -4,15 +4,15 @@
   "releases": [
     {
       "status": "approved",
-      "upstream_tag": "v0.2.0",
-      "upstream_tag_object": "6a7112bf2612ad8a712cf1b97eb75296d8a7a939",
-      "upstream_commit": "d8643ec9835bfbb2c2da452b94fc7bf51d64ab99",
-      "version": "0.2.0",
-      "release_tag": "publisher-v0.2.0-r1",
+      "upstream_tag": "v0.1.3",
+      "upstream_tag_object": "06790da3e1d245a4591c5ec72f694a67b0eeab4f",
+      "upstream_commit": "e54c8ccbcda610450f5ac9ee1fe9adfb42b95b8e",
+      "version": "0.1.3",
+      "release_tag": "publisher-v0.1.3-r1",
       "builder_base": "docker.io/library/rust:1.90.0-slim-bookworm@sha256:4f572135209e89d488fadb81d8a07309857f9b9c5280b54c85a44b71629e8cca",
       "runtime_base": "docker.io/library/debian:bookworm-slim@sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867",
       "reviewed_at": "2026-09-01",
-      "review_reference": "S4 security review and v0.2.0 source/Dockerfile review",
+      "review_reference": "catalog backfill: diff review v0.1.2..v0.1.3 (dep bumps incl openssl 0.10.80, Dockerfile unchanged), GitHub-verified tag",
       "revoked_at": null,
       "revocation_reason": null
     }
