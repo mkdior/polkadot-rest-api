@@ -61,7 +61,7 @@ trap cleanup EXIT
 if preflight=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" 2>&1); then
   die "release ${RELEASE_TAG} appeared after planning; immutable publication refuses to replace it"
 fi
-grep -Fq '(HTTP 404)' <<<"$preflight" \
+grep -Eq 'release not found|\(HTTP 404\)' <<<"$preflight" \
   || die "could not confirm release absence: ${preflight}"
 if preflight=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" 2>&1); then
   die "tag ${RELEASE_TAG} appeared after planning; publication refuses to move it"

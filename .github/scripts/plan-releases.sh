@@ -63,10 +63,15 @@ read_release() {
     printf '%s' "$output"
     return 0
   fi
-  if grep -Fq '(HTTP 404)' <<<"$output"; then
+  # gh release view reports a missing release as "release not found"; only
+  # gh api failures carry the "(HTTP 404)" form. Callers run this inside a
+  # command substitution, where die cannot stop the job, so unrecognized
+  # errors are a distinct status the caller must turn into a hard failure.
+  if grep -Eq 'release not found|\(HTTP 404\)' <<<"$output"; then
     return 1
   fi
-  die "could not inspect release ${RELEASE_TAG}: ${output}"
+  printf 'ERROR: could not inspect release %s: %s\n' "$RELEASE_TAG" "$output" >&2
+  return 2
 }
 
 assert_publisher_tag_absent() {
@@ -134,6 +139,8 @@ while IFS= read -r row; do
   if [[ "$status" == revoked ]]; then
     if metadata=$(read_release); then
       die "revoked release ${RELEASE_TAG} is still published; quarantine it and remove its downloadable assets"
+    else
+      [[ $? -eq 1 ]] || die "could not confirm revoked release ${RELEASE_TAG} is unpublished"
     fi
     continue
   fi
@@ -143,6 +150,7 @@ while IFS= read -r row; do
     validate_existing_release "$metadata"
     printf 'Existing release %s is complete, immutable, and matches provenance.\n' "$RELEASE_TAG"
   else
+    [[ $? -eq 1 ]] || die "could not confirm release ${RELEASE_TAG} absence"
     assert_publisher_tag_absent
     printf '%s\n' "$row" >>"$pending_file"
   fi
