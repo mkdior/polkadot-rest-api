@@ -18,7 +18,7 @@ Publisher tags are intentionally distinct from upstream tags. For upstream
 ```bash
 UPSTREAM_TAG=v0.2.0
 RELEASE_TAG=publisher-v0.2.0-r1
-REPO=kk-hasuwae/polkadot-rest-api
+REPO=mkdior/polkadot-rest-api
 ASSET=polkadot-rest-api-${UPSTREAM_TAG}-linux-x86_64
 
 gh release download "${RELEASE_TAG}" --repo "${REPO}" \
